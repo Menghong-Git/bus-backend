@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   UseGuards,
+  Get,
 } from '@nestjs/common';
 import { PaymentsService } from './payments.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
@@ -19,14 +20,32 @@ export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
   @Post()
-  @Roles(UserRole.PASSENGER)
+  @Roles(UserRole.PASSENGER, UserRole.OPERATOR, UserRole.ADMIN)
   create(@Body() createPaymentDto: CreatePaymentDto) {
     return this.paymentsService.createPayment(createPaymentDto);
   }
 
+  @Post('mock')
+  @Roles(UserRole.PASSENGER, UserRole.OPERATOR, UserRole.ADMIN)
+  createMockPayment(@Body() createPaymentDto: CreatePaymentDto) {
+    return this.paymentsService.processMockPayment(createPaymentDto);
+  }
+
   @Patch(':id/confirm')
-  @Roles(UserRole.PASSENGER)
+  @Roles(UserRole.PASSENGER, UserRole.OPERATOR, UserRole.ADMIN)
   confirm(@Param('id') id: string) {
     return this.paymentsService.confirmPayment(id);
+  }
+
+  @Get(':id')
+  @Roles(UserRole.PASSENGER, UserRole.OPERATOR, UserRole.ADMIN)
+  findOne(@Param('id') id: string) {
+    return this.paymentsService.findOne(id);
+  }
+
+  @Get('booking/:bookingId')
+  @Roles(UserRole.PASSENGER, UserRole.OPERATOR, UserRole.ADMIN)
+  findByBookingId(@Param('bookingId') bookingId: string) {
+    return this.paymentsService.findByBookingId(bookingId);
   }
 }

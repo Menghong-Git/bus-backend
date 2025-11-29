@@ -10,27 +10,7 @@ import { CreatePaymentDto } from './dto/create-payment.dto';
 import { Booking } from '../bookings/entities/booking.entity';
 import { PaymentStatus } from '../common/enums/payment-status.enum';
 import { BookingStatus } from '../common/enums/booking-status.enum';
-
-// Mock Stripe service - in real implementation, use Stripe SDK
-@Injectable()
-export class StripeMockService {
-  async createPaymentIntent(amount: number, currency: string = 'usd') {
-    // Mock Stripe payment intent creation
-    return {
-      id: `pi_${Math.random().toString(36).substr(2, 10)}`,
-      client_secret: `cs_${Math.random().toString(36).substr(2, 20)}`,
-      status: 'requires_payment_method',
-    };
-  }
-
-  async confirmPayment(paymentIntentId: string) {
-    // Mock payment confirmation
-    return {
-      id: paymentIntentId,
-      status: 'succeeded',
-    };
-  }
-}
+import { PaymentMethod } from '../common/enums/payment-method.enum';
 
 @Injectable()
 export class PaymentsService {
@@ -39,14 +19,17 @@ export class PaymentsService {
     private paymentsRepository: Repository<Payment>,
     @InjectRepository(Booking)
     private bookingsRepository: Repository<Booking>,
-    private stripeMockService: StripeMockService,
   ) {}
 
   async createPayment(createPaymentDto: CreatePaymentDto): Promise<Payment> {
     const { bookingId, amount, method, token } = createPaymentDto;
 
+    console.log('💰 Creating payment:', { bookingId, amount, method });
+
+    // Find booking with user relation to check ownership
     const booking = await this.bookingsRepository.findOne({
       where: { id: bookingId },
+      relations: ['user'],
     });
 
     if (!booking) {
@@ -57,27 +40,29 @@ export class PaymentsService {
       throw new BadRequestException('Booking is not in pending status');
     }
 
-    let paymentIntent;
-    let transactionId;
-
-    if (method === 'STRIPE') {
-      paymentIntent = await this.stripeMockService.createPaymentIntent(amount);
-      transactionId = paymentIntent.id;
-    }
-
+    // Create payment record
     const payment = this.paymentsRepository.create({
       bookingId,
       amount,
       method,
-      transactionId,
-      paymentGatewayResponse: paymentIntent,
       status: PaymentStatus.PENDING,
+      transactionId: this.generateTransactionId(method),
+      paymentGatewayResponse: {
+        method,
+        mock: true,
+        timestamp: new Date().toISOString(),
+      },
     });
 
-    return await this.paymentsRepository.save(payment);
+    const savedPayment = await this.paymentsRepository.save(payment);
+    console.log('✅ Payment created:', savedPayment.id);
+
+    return savedPayment;
   }
 
   async confirmPayment(paymentId: string): Promise<Payment> {
+    console.log('💰 Confirming payment:', paymentId);
+
     const payment = await this.paymentsRepository.findOne({
       where: { id: paymentId },
       relations: ['booking'],
@@ -87,38 +72,52 @@ export class PaymentsService {
       throw new NotFoundException('Payment not found');
     }
 
-    // Mock payment confirmation
-    let confirmedPayment;
-    if (payment.method === 'STRIPE') {
-      confirmedPayment = await this.stripeMockService.confirmPayment(
-        payment.transactionId,
-      );
-    } else {
-      // Mock payment confirmation for other methods
-      confirmedPayment = { status: 'succeeded' };
+    // Mock payment confirmation - always succeed for demo
+    payment.status = PaymentStatus.COMPLETED;
+    payment.paymentGatewayResponse = {
+      ...payment.paymentGatewayResponse,
+      confirmed: true,
+      confirmedAt: new Date().toISOString(),
+      mockTransaction: true,
+    };
+
+    // Update booking status
+    if (payment.booking) {
+      payment.booking.status = BookingStatus.CONFIRMED;
+      payment.booking.expiresAt = null;
+      await this.bookingsRepository.save(payment.booking);
+      console.log('✅ Booking updated to CONFIRMED');
     }
 
-    if (confirmedPayment.status === 'succeeded') {
-      payment.status = PaymentStatus.COMPLETED;
+    const confirmedPayment = await this.paymentsRepository.save(payment);
+    console.log('✅ Payment confirmed:', confirmedPayment.id);
 
-      // Update booking status
-      const booking = payment.booking;
-      booking.status = BookingStatus.CONFIRMED;
-      booking.expiresAt = null; // Remove expiry since payment is complete
-      await this.bookingsRepository.save(booking);
-    } else {
-      payment.status = PaymentStatus.FAILED;
-    }
+    return confirmedPayment;
+  }
 
-    payment.paymentGatewayResponse = confirmedPayment;
+  async processMockPayment(
+    createPaymentDto: CreatePaymentDto,
+  ): Promise<Payment> {
+    // Combined create + confirm for mock payments
+    const payment = await this.createPayment(createPaymentDto);
+    return await this.confirmPayment(payment.id);
+  }
 
-    return await this.paymentsRepository.save(payment);
+  private generateTransactionId(method: PaymentMethod): string {
+    const prefix =
+      {
+        [PaymentMethod.CARD]: 'CARD',
+        [PaymentMethod.STRIPE]: 'STRIPE',
+        [PaymentMethod.MOCK]: 'MOCK',
+      }[method] || 'TXN';
+
+    return `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
   async findOne(id: string): Promise<Payment> {
     const payment = await this.paymentsRepository.findOne({
       where: { id },
-      relations: ['booking'],
+      relations: ['booking', 'booking.user'],
     });
 
     if (!payment) {
@@ -126,5 +125,13 @@ export class PaymentsService {
     }
 
     return payment;
+  }
+
+  async findByBookingId(bookingId: string): Promise<Payment[]> {
+    return this.paymentsRepository.find({
+      where: { bookingId },
+      relations: ['booking'],
+      order: { createdAt: 'DESC' },
+    });
   }
 }

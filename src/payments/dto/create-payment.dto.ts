@@ -1,6 +1,5 @@
-import { IsString, IsNumber, IsEnum } from 'class-validator';
+import { IsString, IsNumber, IsEnum, IsOptional } from 'class-validator';
 import { PaymentMethod } from 'src/common/enums/payment-method.enum';
-
 
 export class CreatePaymentDto {
   @IsString()
@@ -12,6 +11,7 @@ export class CreatePaymentDto {
   @IsEnum(PaymentMethod)
   method: PaymentMethod;
 
+  @IsOptional()
   @IsString()
-  token?: string; // For Stripe
+  token?: string; // Make it optional with @IsOptional()
 }
