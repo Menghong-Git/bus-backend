@@ -31,48 +31,49 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
-  // ---------------- SIGN UP ----------------
-  async signUp(signUpDto: SignUpDto): Promise<AuthResponseDto> {
-    const existingUser = await this.usersService.findByEmail(signUpDto.email);
-    if (existingUser) {
-      throw new ConflictException('User with this email already exists');
-    }
-
-    const hashedPassword = await bcrypt.hash(signUpDto.password, 12);
-    const user = await this.usersService.create({
-      email: signUpDto.email,
-      password: hashedPassword, // Changed from hashedPassword to password
-      role: signUpDto.role,
-      isActive: true,
-    });
-
-    // Create role-based profiles
-    if (signUpDto.role === UserRole.PASSENGER) {
-      if (!signUpDto.firstName || !signUpDto.lastName || !signUpDto.phone) {
-        throw new BadRequestException(
-          'Passenger requires firstName, lastName, and phone',
-        );
+    // ---------------- SIGN UP ----------------
+    async signUp(signUpDto: SignUpDto): Promise<AuthResponseDto> {
+      const existingUser = await this.usersService.findByEmail(signUpDto.email);
+      if (existingUser) {
+        throw new ConflictException('User with this email already exists');
       }
-      await this.passengerProfilesService.create({
-        userId: user.id,
-        firstName: signUpDto.firstName,
-        lastName: signUpDto.lastName,
-        phone: signUpDto.phone,
-        nationality: signUpDto.nationality || '',
-      });
-    } else if (signUpDto.role === UserRole.OPERATOR) {
-      await this.operatorProfilesService.create({
-        userId: user.id,
-        isVerified: false,
-        licensePlate: signUpDto.licensePlate || '',
-        busType: signUpDto.busType || '',
-        driverPhone: signUpDto.driverPhone || '',
-      });
-    }
 
-    const tokens = await this.generateTokens(user.id, user.email, user.role);
-    return { ...tokens, user };
-  }
+      const hashedPassword = await bcrypt.hash(signUpDto.password, 12);
+      const user = await this.usersService.create({
+        email: signUpDto.email,
+        password: hashedPassword, // Changed from hashedPassword to password
+        role: signUpDto.role,
+        isActive: true,
+      });
+
+      // Create role-based profiles
+      if (signUpDto.role === UserRole.PASSENGER) {
+        if (!signUpDto.firstName || !signUpDto.lastName || !signUpDto.phone) {
+          throw new BadRequestException(
+            'Passenger requires firstName, lastName, and phone',
+          );
+        }
+        await this.passengerProfilesService.create({
+          userId: user.id,
+          firstName: signUpDto.firstName,
+          lastName: signUpDto.lastName,
+          phone: signUpDto.phone,
+          nationality: signUpDto.nationality || '',
+        });
+      } else if (signUpDto.role === UserRole.OPERATOR) {
+        await this.operatorProfilesService.create({
+          userId: user.id,
+          isVerified: false,
+          licensePlate: signUpDto.licensePlate || '',
+          busType: signUpDto.busType || '',
+          driverPhone: signUpDto.driverPhone || '',
+        });
+      }
+      
+
+      const tokens = await this.generateTokens(user.id, user.email, user.role);
+      return { ...tokens, user };
+    }
 
   // ---------------- SIGN IN ----------------
   async signIn(signInDto: SignInDto): Promise<any> {

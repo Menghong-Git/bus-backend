@@ -28,6 +28,7 @@ export class AuthController {
   @Post('signup')
   async signUp(@Body() signUpDto: SignUpDto) {
     this.logger.log('POST /auth/signup');
+    
     return this.authService.signUp(signUpDto);
   }
 
